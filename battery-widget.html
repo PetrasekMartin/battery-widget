@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Battery Widget</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, 'Helvetica Neue', 'Segoe UI', sans-serif;
+    background: #d8dee6;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .widget {
+    width: 300px;
+    background: #1a2535;
+    border-radius: 26px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+
+  /* Device row */
+  .device-row {
+    display: flex;
+    align-items: center;
+    height: 50px;
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+    background: #1e2d3e;
+  }
+
+  .bar-fill {
+    position: absolute;
+    inset: 0;
+    border-radius: 16px;
+    transition: width 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+    background: linear-gradient(90deg, #1b3b40, #2b7272);
+  }
+
+  .bar-fill.charging {
+    background: linear-gradient(90deg, #1b3540, #2b7878);
+  }
+
+  .bar-fill.low {
+    background: linear-gradient(90deg, #3a2222, #7a3a2a);
+  }
+
+  .row-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0 14px;
+    gap: 10px;
+  }
+
+  .dev-icon {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+  .dev-icon svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: #90b8c8;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .dev-name {
+    flex: 1;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: #c8d8e4;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .dev-pct {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: #e4eef4;
+    min-width: 36px;
+    text-align: right;
+  }
+
+  .bolt {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #00bcd4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+    margin-left: 2px;
+  }
+
+  .bolt.show { opacity: 1; }
+
+  .bolt svg {
+    width: 11px;
+    height: 11px;
+    fill: #fff;
+  }
+
+  /* Sub-info */
+  .sub-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 14px 2px;
+  }
+
+  .sub-text {
+    font-size: 10.5px;
+    color: #4a6878;
+  }
+
+  .sub-text b {
+    color: #6a9aac;
+    font-weight: 500;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #2a3a2a;
+    transition: all 0.5s;
+  }
+  .dot.live { background: #32d74b; box-shadow: 0 0 6px rgba(50,215,75,0.5); }
+  .dot.stale { background: #ff6b35; }
+
+  /* Loading */
+  .loading .bar-fill {
+    background: linear-gradient(90deg, #1e2d3e 0%, #2a3d50 50%, #1e2d3e 100%);
+    background-size: 200% 100%;
+    animation: shim 1.5s infinite;
+    width: 55% !important;
+  }
+  @keyframes shim { 0%{background-position:200% 0}100%{background-position:-200% 0} }
+  .loading .dev-name, .loading .dev-pct { color: #2a3d50; }
+</style>
+</head>
+<body>
+
+<div class="widget" id="widget">
+  <div class="device-row loading">
+    <div class="bar-fill" style="width:55%"></div>
+    <div class="row-content">
+      <div class="dev-icon"><svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/></svg></div>
+      <div class="dev-name">Načítání…</div>
+      <div class="dev-pct">—%</div>
+      <div class="bolt"><svg viewBox="0 0 12 12"><path d="M7 1L3 7h3l-1 4 4-6H6l1-4z"/></svg></div>
+    </div>
+  </div>
+  <div class="sub-info">
+    <div class="sub-text">Načítání dat…</div>
+    <div class="dot"></div>
+  </div>
+</div>
+
+<script>
+// ====== KONFIGURACE ======
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTDOJ3L1eDoT0aBM58YzyjRwoAEOnIjTuohkhF-du1esLTyC2hWtztKcbBCQqXrrRu6aOia-bPrAfTn/pub?output=csv';
+const REFRESH = 5 * 60 * 1000;
+const TREND_N = 6;
+
+const ICONS = {
+  ipadpro: '<svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>',
+  default: '<svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/></svg>',
+};
+const NAMES = { ipadpro: 'iPad Pro' };
+
+// ====== CSV PARSER ======
+function parseCSV(text) {
+  const rows = []; let c = '', q = false, row = [];
+  for (const ch of text) {
+    if (ch === '"') q = !q;
+    else if (ch === ',' && !q) { row.push(c.trim()); c = ''; }
+    else if ((ch === '\n' || ch === '\r') && !q) {
+      if (c || row.length) { row.push(c.trim()); if (row.some(x=>x)) rows.push(row); row = []; c = ''; }
+    } else c += ch;
+  }
+  if (c || row.length) { row.push(c.trim()); if (row.some(x=>x)) rows.push(row); }
+  return rows;
+}
+
+function parseDate(s) {
+  const p = s?.match(/(\d+)\/(\d+)\/(\d+)\s+(\d+):(\d+):(\d+)/);
+  return p ? new Date(+p[3], +p[1]-1, +p[2], +p[4], +p[5], +p[6]) : null;
+}
+
+async function fetchData() {
+  const r = await fetch(CSV_URL);
+  if (!r.ok) throw new Error('Fetch failed');
+  const rows = parseCSV(await r.text());
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i]; if (row.length < 3) continue;
+    const ts = parseDate(row[0]), lv = parseInt(row[1]);
+    const dev = row[2].replace(/\n/g, '').trim();
+    const chg = row.length >= 4 && row[3].toUpperCase() === 'TRUE';
+    if (ts && !isNaN(lv)) out.push({ ts, lv, dev, chg });
+  }
+  return out.sort((a, b) => b.ts - a.ts);
+}
+
+// ====== ANALÝZA ======
+function analyze(recs) {
+  if (!recs.length) return null;
+  const lat = recs[0], recent = recs.slice(0, TREND_N);
+  let trend = null;
+  if (recent.length >= 2) {
+    const dt = (recent[0].ts - recent[recent.length-1].ts) / 60000;
+    const dl = recent[0].lv - recent[recent.length-1].lv;
+    if (dt > 0) trend = { pph: (dl / dt) * 60 };
+  }
+  const charging = lat.chg || (trend && trend.pph > 0.5);
+  let est = null;
+  if (trend) {
+    if (charging && trend.pph > 0) est = (100 - lat.lv) * (60 / trend.pph);
+    else if (trend.pph < -0.5) est = lat.lv * (60 / Math.abs(trend.pph));
+  }
+  return { lat, trend, charging, est };
+}
+
+function fmtTime(m) {
+  if (m == null) return '';
+  if (m <= 0) return '<1m';
+  const h = Math.floor(m/60), mm = Math.round(m%60);
+  if (h >= 24) return `~${Math.floor(h/24)}d ${h%24}h`;
+  return h > 0 ? `~${h}h ${mm}m` : `~${mm}m`;
+}
+
+// ====== RENDER ======
+function render(records) {
+  const w = document.getElementById('widget');
+  const byDev = {};
+  records.forEach(r => {
+    const k = r.dev.toLowerCase().replace(/\s/g, '');
+    (byDev[k] = byDev[k] || []).push(r);
+  });
+
+  let html = '';
+  let mainA = null;
+
+  for (const [k, recs] of Object.entries(byDev)) {
+    const a = analyze(recs);
+    if (!a) continue;
+    if (!mainA) mainA = a;
+    const { lat, charging, est } = a;
+    const lv = lat.lv;
+    const icon = ICONS[k] || ICONS.default;
+    const name = NAMES[k] || lat.dev;
+    const fillCls = charging ? 'charging' : lv <= 15 ? 'low' : '';
+    const boltCls = charging ? 'bolt show' : 'bolt';
+
+    html += `
+      <div class="device-row">
+        <div class="bar-fill ${fillCls}" style="width:${Math.max(lv, 5)}%"></div>
+        <div class="row-content">
+          <div class="dev-icon">${icon}</div>
+          <div class="dev-name">${name}</div>
+          <div class="dev-pct">${lv}%</div>
+          <div class="${boltCls}"><svg viewBox="0 0 12 12"><path d="M7 1L3 7h3l-1 4 4-6H6l1-4z"/></svg></div>
+        </div>
+      </div>`;
+  }
+
+  // Info row
+  let info = '', dot = '';
+  if (mainA) {
+    const { lat, trend, charging, est } = mainA;
+    const age = (Date.now() - lat.ts) / 60000;
+    dot = age < 30 ? 'live' : 'stale';
+    const t = fmtTime(est);
+
+    if (charging && t) {
+      info = `⚡ Nabíjení · <b>${t}</b> do 100%`;
+    } else if (trend && trend.pph < -0.5 && t) {
+      const mpp = 60 / Math.abs(trend.pph);
+      const usage = mpp < 20 ? 'Aktivní' : mpp < 45 ? 'Lehké použití' : 'Standby';
+      info = `${usage} · zbývá <b>${t}</b>`;
+    } else {
+      const h = lat.ts.getHours().toString().padStart(2,'0');
+      const m = lat.ts.getMinutes().toString().padStart(2,'0');
+      info = `Aktualizováno ${h}:${m}`;
+    }
+  }
+
+  html += `<div class="sub-info"><div class="sub-text">${info}</div><div class="dot ${dot}"></div></div>`;
+  w.innerHTML = html;
+}
+
+// ====== START ======
+async function go() {
+  try { render(await fetchData()); }
+  catch(e) {
+    console.error(e);
+    document.getElementById('widget').innerHTML =
+      '<div class="sub-info" style="justify-content:center"><div class="sub-text" style="color:#ff6b6b">Chyba načítání</div></div>';
+  }
+}
+go();
+setInterval(go, REFRESH);
+</script>
+</body>
+</html>
